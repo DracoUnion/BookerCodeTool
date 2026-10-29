@@ -1,0 +1,13 @@
+openai
+httpx
+requests
+pyyaml
+pydantic
+json_repair
+pymupdf
+pillow
+tqdm
+pyturndown
+ctx-compact
+idapro
+x64dbg-automate
