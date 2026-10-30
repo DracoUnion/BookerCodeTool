@@ -63,12 +63,12 @@ BookerCodeTool re -ca
 -vm, --vmodel          视觉模型名称（默认 $OPENAI_VIS_MODEL）
 -im, --tti-model       文生图模型名称（默认 $OPENAI_TTI_MODEL）
 -ua, --user-agent      HTTP User-Agent 请求头
--st, --stream          流式输出模式
+-ST, --no-stream      关闭流式输出模式
 -eb, --extra-body      额外请求体
 -ct, --conn-timeout    连接超时秒数（默认 60）
 -rt, --read-timeout    读取超时秒数（默认 120）
 -rr, --repetition-regex 重复检测正则
--nt, --no-think        关闭思考模式
+-TN, --no-think        关闭思考模式
 -v,  --version         打印版本
 ```
 

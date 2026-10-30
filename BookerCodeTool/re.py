@@ -275,5 +275,4 @@ def reg_subparser(subparsers):
         '-no-xauto', '--no-xauto', action='store_true',
         help='禁用 x64dbg/x32dbg 直连（仅用 IDA + 基础工具）',
     )
-    p.add_argument('-D', '--debug', action='store_true', help='调试模式')
     p.set_defaults(func=re_handle)

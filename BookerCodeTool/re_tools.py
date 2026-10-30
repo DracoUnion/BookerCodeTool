@@ -59,7 +59,7 @@ class ReTools(ToolsMixin):
         self.retry = getattr(args, 'retry', 3)
         self.temperature = getattr(args, 'temp', 0.0)
         self.max_tokens = getattr(args, 'max_tokens', 4000)
-        self.stream = getattr(args, 'stream', False)
+        self.stream = not getattr(args, 'no_stream', False)
         self.project_id = getattr(args, 'project', None) or 're_project'
         self.pj_dir = path.abspath(self.project_id)
         os.makedirs(self.pj_dir, exist_ok=True)
