@@ -25,6 +25,7 @@ from .util import (
 )
 from .openai import *
 from .re_models import *
+from .re_pmt import _JSON_OUT
 from .re_pmt import *
 from . import re_ida as re_ida_mod
 from . import re_xauto as re_xauto_mod
