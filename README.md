@@ -18,7 +18,7 @@ pip install -r requirements.txt
 | `book` | 代码 → 书籍（源自 `code2book`） |
 | `check-book` | 代码 → 书籍校验器（源自 `code2book-check`） |
 | `re` | 逆向工程智能体（IDA / x64dbg / x32dbg + 基础工具） |
-| `pentest` | 渗透测试智能体（pentest-skills 技能工具 + bash/文件/打印/询问用户） |
+| `pentest` | 渗透测试智能体（技能按工作流拆分为步骤工具 + bash/文件/打印/询问用户） |
 
 ## 用法
 
@@ -45,10 +45,10 @@ BookerCodeTool re -g "定位某个函数" -p re_project
 # 检查逆向环境（IDA / x64dbg）是否可用
 BookerCodeTool re -ca
 
-# 渗透测试（需已获得目标授权；技能内置，无需外部技能目录）
+# 渗透测试（需已获得目标授权；技能内置并按工作流拆分为步骤工具）
 BookerCodeTool pentest -T "https://example.com" -g "侦察并验证常见 Web 漏洞" --authorized
 
-# 列出全部内置渗透技能（含对应工具名）
+# 列出全部内置渗透技能及其步骤工具（步骤名 -> 工具名）
 BookerCodeTool pentest -l
 ```
 
