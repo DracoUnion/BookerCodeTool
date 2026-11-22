@@ -493,7 +493,8 @@ class KgTools(ToolsMixin):
             questions = suggest_questions(G, communities, labels)
 
             # 导出 graph.json（force 控制收缩保护）
-            wrote = to_json(G, communities, 'graphify-out/graph.json', force=force, out_dir=out_dir)
+            graph_file = out_dir / 'graph.json'
+            wrote = to_json(G, communities, str(graph_file), force=force)
             if not wrote:
                 return {'error': 'refused to shrink graphify-out/graph.json (existing graph has more nodes; use force=True)'}
 
@@ -567,7 +568,8 @@ class KgTools(ToolsMixin):
             (out_dir / '.graphify_labels.json').write_text(json.dumps({str(k): v for k, v in labels.items()}, ensure_ascii=False), encoding='utf-8')
 
             # 重新导出 graph.json 带 community_name
-            wrote = to_json(G, communities, 'graphify-out/graph.json', community_labels=labels, out_dir=out_dir)
+            graph_file = out_dir / 'graph.json'
+            wrote = to_json(G, communities, str(graph_file), community_labels=labels)
 
             logger.info(f'社区标注完成：{len(labels)} 个社区')
             return {'labels': labels}
@@ -577,7 +579,7 @@ class KgTools(ToolsMixin):
 
     def tool_kg_export(self, formats: List[str] = None, scan_root: str = '') -> Dict[str, Any]:
         """多格式导出。内联 graphify.export 逻辑。"""
-        from graphify.export import export_html, export_svg, export_graphml, export_neo4j, export_falkordb, export_wiki, export_obsidian
+        from graphify.export import to_html, to_svg, to_graphml, to_cypher, to_obsidian
         from pathlib import Path
 
         scan_root = scan_root or self._get_scan_root(getattr(self.args, 'target', ''))
@@ -590,42 +592,44 @@ class KgTools(ToolsMixin):
         results = {}
 
         try:
+            graph_file = out_dir / 'graph.json'
+            if not graph_file.exists():
+                return {'error': 'graph.json not found, need to build graph first'}
+
             # HTML
             if export_args.html or 'html' in formats:
-                export_html(graphs_dir, out_dir=out_dir)
+                to_html(graphs_dir, out_dir=out_dir)
                 results['html'] = str(out_dir / 'graph.html')
 
             # SVG
             if export_args.svg or 'svg' in formats:
-                export_svg(graphs_dir, out_dir=out_dir)
+                to_svg(graphs_dir, out_dir=out_dir)
                 results['svg'] = str(out_dir / 'graph.svg')
 
             # GraphML
             if export_args.graphml or 'graphml' in formats:
-                export_graphml(graphs_dir, out_dir=out_dir)
+                to_graphml(graphs_dir, out_dir=out_dir)
                 results['graphml'] = str(out_dir / 'graph.graphml')
 
             # Neo4j
             if export_args.neo4j or 'neo4j' in formats:
                 push_uri = export_args.neo4j_push or None
-                export_neo4j(graphs_dir, push=push_uri, out_dir=out_dir)
+                to_cypher(graphs_dir, push=push_uri, out_dir=out_dir)
                 results['neo4j'] = str(out_dir / 'cypher.txt') if not push_uri else 'pushed'
 
             # FalkorDB
             if export_args.falkordb or 'falkordb' in formats:
                 push_uri = export_args.falkordb_push or None
-                export_falkordb(graphs_dir, push=push_uri, out_dir=out_dir)
+                to_cypher(graphs_dir, push=push_uri, out_dir=out_dir)
                 results['falkordb'] = str(out_dir / 'cypher.txt') if not push_uri else 'pushed'
 
-            # Wiki
-            if export_args.wiki or 'wiki' in formats:
-                export_wiki(graphs_dir, out_dir=out_dir)
-                results['wiki'] = str(out_dir / 'wiki')
+            # Wiki - not available in graphify.export
+            # if export_args.wiki or 'wiki' in formats:
 
             # Obsidian
             if export_args.obsidian or 'obsidian' in formats:
                 obsidian_dir = export_args.obsidian_dir or str(out_dir / 'obsidian')
-                export_obsidian(graphs_dir, out_dir=Path(obsidian_dir))
+                to_obsidian(graphs_dir, out_dir=Path(obsidian_dir))
                 results['obsidian'] = obsidian_dir
 
             logger.info(f'导出完成：{results}')

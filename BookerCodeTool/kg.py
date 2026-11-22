@@ -152,7 +152,10 @@ class KgOrchestrator:
         scan_root = self.tools._get_scan_root(target)
 
         # 根据阶段执行对应工作流
-        if state.stage == 'INIT':
+        # 构建工作流阶段：INIT -> DETECT -> EXTRACT -> BUILD -> LABEL -> EXPORT
+        build_stages = ['INIT', 'DETECT', 'EXTRACT', 'BUILD', 'LABEL', 'EXPORT']
+
+        if state.stage in build_stages:
             return self._run_build_workflow(scan_root, state)
         elif state.stage == 'QUERY':
             return self._run_query(state)
@@ -269,7 +272,7 @@ class KgOrchestrator:
             return KgFinalReport(
                 status='done',
                 stage='DONE',
-                target=target,
+                target=state.target,
                 summary='知识图谱构建完成',
                 graph_stats=build_result,
                 outputs=outputs,
