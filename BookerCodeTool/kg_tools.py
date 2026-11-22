@@ -148,8 +148,8 @@ class KgAgent(ToolsMixin):
         else:
             # 本地路径，使用目录名加 _kg
             target_path = path.abspath(target)
-            dir_name = path.basename(target_path)
-            self.project_id = f'{dir_name}_kg'
+            # dir_name = path.basename(target_path)
+            self.project_id = f'{target_path}_kg'
         self.pj_dir = path.abspath(self.project_id)
         os.makedirs(self.pj_dir, exist_ok=True)
 
