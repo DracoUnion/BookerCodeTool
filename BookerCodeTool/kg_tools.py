@@ -121,7 +121,7 @@ _STEP_TOOL_PARAMS: Dict[str, Dict[str, Any]] = {
 }
 
 
-class KgTools(ToolsMixin):
+class KgAgent(ToolsMixin):
     """kg 子命令工具集。
 
     每个工作流步骤注册为独立工具（tool_kg_<步骤>），步骤指南带文件缓存。
@@ -580,58 +580,68 @@ class KgTools(ToolsMixin):
     def tool_kg_export(self, formats: List[str] = None, scan_root: str = '') -> Dict[str, Any]:
         """多格式导出。内联 graphify.export 逻辑。"""
         from graphify.export import to_html, to_svg, to_graphml, to_cypher, to_obsidian
+        import networkx as nx
+        import json
         from pathlib import Path
-
+        
         scan_root = scan_root or self._get_scan_root(getattr(self.args, 'target', ''))
         out_dir = Path(self.pj_dir) / 'graphify-out'
-        graphs_dir = out_dir
-
+        
         formats = formats or []
         export_args = getattr(self.args, 'export', ExportFormat())
-
+        
         results = {}
-
+        
         try:
             graph_file = out_dir / 'graph.json'
             if not graph_file.exists():
                 return {'error': 'graph.json not found, need to build graph first'}
-
+            
+            # 加载图和社区
+            graph_data = json.loads(graph_file.read_text(encoding='utf-8'))
+            G = nx.node_link_graph(graph_data)
+            communities = {int(k): v for k, v in graph_data.get('communities', {}).items()}
+            community_labels = {int(k): v for k, v in graph_data.get('community_labels', {}).items()}
+            cohesion = {int(k): float(v) for k, v in graph_data.get('cohesion', {}).items()}
+            
             # HTML
             if export_args.html or 'html' in formats:
-                to_html(graphs_dir, out_dir=out_dir)
-                results['html'] = str(out_dir / 'graph.html')
-
+                html_path = str(out_dir / 'graph.html')
+                to_html(G, communities, html_path, community_labels=community_labels)
+                results['html'] = html_path
+            
             # SVG
             if export_args.svg or 'svg' in formats:
-                to_svg(graphs_dir, out_dir=out_dir)
-                results['svg'] = str(out_dir / 'graph.svg')
-
+                svg_path = str(out_dir / 'graph.svg')
+                to_svg(G, communities, svg_path, community_labels=community_labels)
+                results['svg'] = svg_path
+            
             # GraphML
             if export_args.graphml or 'graphml' in formats:
-                to_graphml(graphs_dir, out_dir=out_dir)
-                results['graphml'] = str(out_dir / 'graph.graphml')
-
+                graphml_path = str(out_dir / 'graph.graphml')
+                to_graphml(G, communities, graphml_path)
+                results['graphml'] = graphml_path
+            
             # Neo4j
             if export_args.neo4j or 'neo4j' in formats:
                 push_uri = export_args.neo4j_push or None
-                to_cypher(graphs_dir, push=push_uri, out_dir=out_dir)
-                results['neo4j'] = str(out_dir / 'cypher.txt') if not push_uri else 'pushed'
-
+                cypher_path = str(out_dir / 'cypher.txt')
+                to_cypher(G, cypher_path)
+                results['neo4j'] = cypher_path if not push_uri else 'pushed'
+            
             # FalkorDB
             if export_args.falkordb or 'falkordb' in formats:
                 push_uri = export_args.falkordb_push or None
-                to_cypher(graphs_dir, push=push_uri, out_dir=out_dir)
-                results['falkordb'] = str(out_dir / 'cypher.txt') if not push_uri else 'pushed'
-
-            # Wiki - not available in graphify.export
-            # if export_args.wiki or 'wiki' in formats:
-
+                cypher_path = str(out_dir / 'cypher_falkordb.txt')
+                to_cypher(G, cypher_path)
+                results['falkordb'] = cypher_path if not push_uri else 'pushed'
+            
             # Obsidian
             if export_args.obsidian or 'obsidian' in formats:
                 obsidian_dir = export_args.obsidian_dir or str(out_dir / 'obsidian')
-                to_obsidian(graphs_dir, out_dir=Path(obsidian_dir))
+                to_obsidian(G, communities, obsidian_dir, community_labels=community_labels, cohesion=cohesion)
                 results['obsidian'] = obsidian_dir
-
+            
             logger.info(f'导出完成：{results}')
             return results
         except Exception as ex:

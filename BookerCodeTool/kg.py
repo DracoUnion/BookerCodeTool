@@ -19,7 +19,7 @@ from .openai import logger as oai_logger
 from .util import render_prompt, write_text, json_dump_model, write_yaml_model
 from .kg_models import *
 from .kg_pmt import KG_SYSTEM_PROMPT, _JSON_OUT
-from .kg_tools import KgTools, builtin_skills, step_tool_map
+from .kg_tools import KgAgent, builtin_skills, step_tool_map
 
 logging.basicConfig(
     level=logging.INFO,
@@ -93,7 +93,7 @@ class KgOrchestrator:
 
     def __init__(self, args):
         self.args = args
-        self.tools = KgTools(args)
+        self.tools = KgAgent(args)
         self.pj_dir = self.tools.pj_dir
         self.llm = self.tools.llm
         logger.info('kg 已加载技能：%s', [s.name for s in self.tools.skills])
