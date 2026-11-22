@@ -202,6 +202,8 @@ class KgTools(ToolsMixin):
             video_files=self._get_video_files(),
             whisper_model=getattr(self.args, 'whisper_model', 'base'),
             watch_dir=self._get_scan_root(target),
+            goal=getattr(self.args, 'goal', ''),
+            authorized='true' if getattr(self.args, 'authorized', False) else 'false',
         )
         # 缓存文件名
         cache_fname = path.join(
