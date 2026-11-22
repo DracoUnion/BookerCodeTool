@@ -2,7 +2,7 @@ import argparse
 import sys
 import os
 from . import __version__
-from . import doc, book, re, pentest
+from . import doc, book, re, pentest, kg
 
 
 def main():
@@ -44,6 +44,7 @@ def main():
     book.reg_subparser(subparsers)
     re.reg_subparser(subparsers)
     pentest.reg_subparser(subparsers)
+    kg.reg_subparser(subparsers)
 
     args = parser.parse_args()
     args.func(args)
