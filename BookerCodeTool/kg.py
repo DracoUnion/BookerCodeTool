@@ -269,7 +269,7 @@ class KgOrchestrator:
             state.stage = 'DONE'
             self.tools.tool_update_state(stage='DONE', next_action='')
 
-            return KgFinalReport(
+            final_report = KgFinalReport(
                 status='done',
                 stage='DONE',
                 target=state.target,
@@ -280,10 +280,15 @@ class KgOrchestrator:
                 blockers=[],
                 next_action='',
             )
+            # 写入最终报告
+            report_path = path.join(self.pj_dir, 'final_report.md')
+            write_text(report_path, json_dump_model(final_report))
+            logger.info('最终报告已写入：%s', report_path)
+            return final_report
 
         except Exception as ex:
             logger.exception('构建工作流失败')
-            return KgFinalReport(
+            final_report = KgFinalReport(
                 status='needs_approval',
                 stage=state.stage or 'ERROR',
                 target=state.target,
@@ -294,6 +299,11 @@ class KgOrchestrator:
                 blockers=[str(ex)],
                 next_action='检查日志并重试',
             )
+            # 写入最终报告
+            report_path = path.join(self.pj_dir, 'final_report.md')
+            write_text(report_path, json_dump_model(final_report))
+            logger.info('最终报告已写入：%s', report_path)
+            return final_report
 
     def _get_export_formats(self, export_flags: ExportFormat) -> List[str]:
         """获取启用的导出格式列表。"""
@@ -515,7 +525,6 @@ def reg_subparser(subparsers):
     )
     p.add_argument('-T', '--target', default='', help='目标路径（本地目录或 GitHub URL），缺省当前目录')
     p.add_argument('-g', '--goal', default='', help='任务目标描述（如：构建完整知识图谱并导出 HTML）')
-    p.add_argument('-p', '--project', default='kg_project', help='项目工作目录（也作恢复断点用）')
     p.add_argument('-ms', '--max-steps', type=int, default=80, help='本轮循环步数上限（默认 80）')
 
     p.add_argument('--mode', choices=['deep', 'update', 'cluster-only', 'force', 'directed'], default='', help='运行模式：deep(深度)/update(增量)/cluster-only(仅聚类)/force(强制重建)/directed(有向图)')

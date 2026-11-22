@@ -139,7 +139,17 @@ class KgAgent(ToolsMixin):
         self.temperature = getattr(args, 'temp', 0.0)
         self.max_tokens = getattr(args, 'max_tokens', 4000)
         self.stream = not getattr(args, 'no_stream', False)
-        self.project_id = getattr(args, 'project', None) or 'kg_project'
+        # 项目目录：target 目录后加 _kg
+        target = getattr(args, 'target', '') or '.'
+        if target.startswith('https://github.com/') or target.startswith('http://github.com/'):
+            # GitHub URL，使用仓库名
+            repo_name = target.rstrip('/').split('/')[-1].replace('.git', '')
+            self.project_id = f'{repo_name}_kg'
+        else:
+            # 本地路径，使用目录名加 _kg
+            target_path = path.abspath(target)
+            dir_name = path.basename(target_path)
+            self.project_id = f'{dir_name}_kg'
         self.pj_dir = path.abspath(self.project_id)
         os.makedirs(self.pj_dir, exist_ok=True)
 
@@ -583,65 +593,76 @@ class KgAgent(ToolsMixin):
         import networkx as nx
         import json
         from pathlib import Path
-        
+
         scan_root = scan_root or self._get_scan_root(getattr(self.args, 'target', ''))
         out_dir = Path(self.pj_dir) / 'graphify-out'
-        
+
         formats = formats or []
         export_args = getattr(self.args, 'export', ExportFormat())
-        
+
         results = {}
-        
+
         try:
             graph_file = out_dir / 'graph.json'
             if not graph_file.exists():
                 return {'error': 'graph.json not found, need to build graph first'}
-            
+
             # 加载图和社区
             graph_data = json.loads(graph_file.read_text(encoding='utf-8'))
             G = nx.node_link_graph(graph_data)
             communities = {int(k): v for k, v in graph_data.get('communities', {}).items()}
             community_labels = {int(k): v for k, v in graph_data.get('community_labels', {}).items()}
             cohesion = {int(k): float(v) for k, v in graph_data.get('cohesion', {}).items()}
-            
+
+            def try_export(fmt_name: str, export_func, *args, **kwargs):
+                try:
+                    export_func(*args, **kwargs)
+                    return True
+                except ValueError as ve:
+                    logger.warning(f'{fmt_name} 导出失败: {ve}')
+                    return False
+                except Exception as ex:
+                    logger.warning(f'{fmt_name} 导出异常: {ex}')
+                    return False
+
             # HTML
             if export_args.html or 'html' in formats:
                 html_path = str(out_dir / 'graph.html')
-                to_html(G, communities, html_path, community_labels=community_labels)
-                results['html'] = html_path
-            
+                if try_export('HTML', to_html, G, communities, html_path, community_labels=community_labels):
+                    results['html'] = html_path
+
             # SVG
             if export_args.svg or 'svg' in formats:
                 svg_path = str(out_dir / 'graph.svg')
-                to_svg(G, communities, svg_path, community_labels=community_labels)
-                results['svg'] = svg_path
-            
+                if try_export('SVG', to_svg, G, communities, svg_path, community_labels=community_labels):
+                    results['svg'] = svg_path
+
             # GraphML
             if export_args.graphml or 'graphml' in formats:
                 graphml_path = str(out_dir / 'graph.graphml')
-                to_graphml(G, communities, graphml_path)
-                results['graphml'] = graphml_path
-            
+                if try_export('GraphML', to_graphml, G, communities, graphml_path):
+                    results['graphml'] = graphml_path
+
             # Neo4j
             if export_args.neo4j or 'neo4j' in formats:
                 push_uri = export_args.neo4j_push or None
                 cypher_path = str(out_dir / 'cypher.txt')
-                to_cypher(G, cypher_path)
-                results['neo4j'] = cypher_path if not push_uri else 'pushed'
-            
+                if try_export('Neo4j', to_cypher, G, cypher_path):
+                    results['neo4j'] = cypher_path if not push_uri else 'pushed'
+
             # FalkorDB
             if export_args.falkordb or 'falkordb' in formats:
                 push_uri = export_args.falkordb_push or None
                 cypher_path = str(out_dir / 'cypher_falkordb.txt')
-                to_cypher(G, cypher_path)
-                results['falkordb'] = cypher_path if not push_uri else 'pushed'
-            
+                if try_export('FalkorDB', to_cypher, G, cypher_path):
+                    results['falkordb'] = cypher_path if not push_uri else 'pushed'
+
             # Obsidian
             if export_args.obsidian or 'obsidian' in formats:
                 obsidian_dir = export_args.obsidian_dir or str(out_dir / 'obsidian')
-                to_obsidian(G, communities, obsidian_dir, community_labels=community_labels, cohesion=cohesion)
-                results['obsidian'] = obsidian_dir
-            
+                if try_export('Obsidian', to_obsidian, G, communities, obsidian_dir, community_labels=community_labels, cohesion=cohesion):
+                    results['obsidian'] = obsidian_dir
+
             logger.info(f'导出完成：{results}')
             return results
         except Exception as ex:
