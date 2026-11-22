@@ -57,23 +57,24 @@ KG_ROUND_PROMPT = """{_JSON_OUT}
 
 === 指令 ===
 请根据当前状态与用户输入，决定下一步动作。
-- 若处于 INIT 阶段：调用 tool_kg_init 获取行动指南，再根据指南的 commands 执行实际操作（用 tool_bash 或 tool_kg_run_graphify_cmd），最后更新状态进入 DETECT
-- 若处于 DETECT 阶段：调用 tool_kg_detect 获取行动指南，按指南执行 graphifyy detect，更新状态进入 EXTRACT
-- 若处于 EXTRACT 阶段：调用 tool_kg_extract_ast 与 tool_kg_extract_semantic 并行抽取，按指南执行，更新状态进入 BUILD
-- 若处于 BUILD 阶段：调用 tool_kg_build_graph 构建图谱，按指南执行，更新状态进入 LABEL/EXPORT
-- 若处于 QUERY 阶段：调用 tool_kg_query 回答问题，按指南执行
+- 若处于 INIT 阶段：调用 tool_kg_init 获取行动指南，然后调用 tool_kg_detect_files 进行文件检测，更新状态进入 EXTRACT
+- 若处于 EXTRACT 阶段：并行调用 tool_kg_extract_ast（代码文件）和 tool_kg_extract_semantic（文档/图片），然后调用 tool_kg_merge_extract 合并，更新状态进入 BUILD
+- 若处于 BUILD 阶段：调用 tool_kg_build_graph 构建图谱、聚类、分析，更新状态进入 LABEL/EXPORT
+- 若处于 LABEL 阶段：调用 tool_kg_label_communities 标注社区，更新状态进入 EXPORT
+- 若处于 EXPORT 阶段：按标志调用 tool_kg_export 导出多种格式
+- 若处于 QUERY 阶段：调用 tool_kg_query 回答问题
 - 若处于 PATH 阶段：调用 tool_kg_path 查询最短路径
 - 若处于 EXPLAIN 阶段：调用 tool_kg_explain 解释节点
 - 若处于 ADD 阶段：调用 tool_kg_add_url 添加语料
+- 若处于 TRANSCRIBE 阶段：调用 tool_kg_transcribe 转录视频
 - 若处于 WATCH 阶段：调用 tool_kg_watch 启动监控
-- 若处于 EXPORT 阶段：按标志调用对应导出工具
 - 所有阶段完成后：调用 tool_finish 返回最终报告
 
 【工具调用流程关键点】
-- 步骤工具（tool_kg_init/detect/extract_ast 等）会返回结构化的 KgStepGuide 行动指南
-- KgStepGuide 包含 commands（要执行的命令）、checks（验证要点）、save_paths（产出文件）等
-- 拿到 KgStepGuide 后，应根据其中的 commands 调用 tool_bash 或 tool_kg_run_graphify_cmd 执行实际操作
-- 执行完命令后，再调用下一个步骤工具推进工作流
+- 步骤工具（tool_kg_init/detect/extract_ast 等）返回结构化的 KgStepGuide 行动指南
+- 内联实现工具（tool_kg_detect_files/extract_ast/extract_semantic/merge_extract/build_graph/label_communities/export/query/path/explain/add_url/transcribe/watch）直接执行 graphify 核心逻辑，无需 CLI
+- 拿到 KgStepGuide 后，应根据其中的建议调用对应的内联实现工具
+- 执行完内联工具后，再调用下一个步骤工具推进工作流
 - 只有在所有阶段完成、得到最终结果时，才调用 tool_finish 返回 KgFinalReport
 
 注意：
@@ -107,14 +108,13 @@ KG_INIT_PMT = """{_JSON_OUT}
 项目目录：{pj_dir}
 
 请生成初始化行动指南（KgStepGuide），包含：
-1. 目标路径有效性检查命令（如：`test -d "{target}" && echo EXISTS || echo NOT_FOUND`）
-2. 是否需要克隆 GitHub 仓库（若 target 为 GitHub URL）
-3. 检查 graphify-out 目录是否已存在（`test -d "{pj_dir}/graphify-out" && echo EXISTS || echo NOT_EXIST`）
-4. 必要的授权确认说明
+1. 目标路径有效性检查（本地路径存在性、GitHub URL 格式）
+2. 是否需要克隆 GitHub 仓库
+3. graphify-out 目录是否已存在（决定是否走快速查询路径）
+4. 必要的授权确认（如 --neo4j-push、--falkordb-push、--watch 涉及外部写入）
 5. 下一步建议阶段（DETECT/QUERY/ADD 等）
 
-commands 字段请给出可直接执行的 shell 命令。
-输出 KgStepGuide 结构。"""
+输出 KgStepGuide 结构，建议下一步调用 tool_kg_detect_files。"""
 
 # 文件检测
 KG_DETECT_PMT = """{_JSON_OUT}
@@ -126,15 +126,15 @@ KG_DETECT_PMT = """{_JSON_OUT}
 项目目录：{pj_dir}
 
 请生成文件检测行动指南（KgStepGuide）。
-graphify 通过 `graphify extract --code-only <path>` 可同时完成检测与 AST 抽取，产出 graphify-out/graph.json 与 graphify-out/.graphify_detect.json。
-若仅需检测不抽取，可用 `graphify extract <path> --no-cluster --code-only` 但需 LLM 后端。
+直接调用 tool_kg_detect_files 内联实现，它会：
+- 递归扫描目标目录，分类文件（code/document/paper/image/video）
+- 读取 .gitignore 与排除规则
+- 统计总文件数、总字数估算
+- 识别敏感文件并记录跳过列表
+- 将检测结果写入 graphify-out/.graphify_detect.json
+- 大语料预警：total_files>500 或 total_words>2,000,000 时，计算前 5 大子目录供用户选择
 
-commands 字段请给出可直接执行的 graphify CLI 命令，例如：
-- `cd "{scan_root}" && python -m graphify extract . --code-only --out "{pj_dir}"`
-- 检测完成后读取 `graphify-out/.graphify_detect.json` 判断文件数量
-- 若 total_files>500 或 total_words>2,000,000，计算前 5 大子目录并建议用户聚焦
-
-输出 KgStepGuide 结构。"""
+输出 KgStepGuide 结构，建议下一步调用 tool_kg_extract_ast 和 tool_kg_extract_semantic 并行。"""
 
 # AST 结构化抽取（代码文件）
 KG_EXTRACT_AST_PMT = """{_JSON_OUT}
@@ -147,14 +147,13 @@ KG_EXTRACT_AST_PMT = """{_JSON_OUT}
 模式：{mode}
 
 请生成 AST 抽取行动指南（KgStepGuide）。
-graphify 的 `extract` 子命令已在 DETECT 阶段完成（`graphify extract --code-only` 会同时做检测和 AST 抽取）。
-若检测已完成但需单独做 AST 抽取，可用 `graphify extract <path> --code-only`。
+直接调用 tool_kg_extract_ast 内联实现，它会：
+- 使用 graphify.extract.collect_files 和 graphify.extract.extract 对代码文件做 AST 抽取
+- 传递 root=scan_root 与 cache_root=scan_root 保证节点 ID 稳定
+- 产出写入 graphify-out/.graphify_ast.json
+- 无代码文件时写入空结果结构
 
-commands 字段请给出可直接执行的命令，例如：
-- 若未做过抽取：`cd "{scan_root}" && python -m graphify extract . --code-only --out "{pj_dir}"`
-- 检查产出：`test -f "{pj_dir}/graphify-out/graph.json" && echo EXTRACTED || echo NOT_EXTRACTED`
-
-输出 KgStepGuide 结构。"""
+输出 KgStepGuide 结构，建议下一步调用 tool_kg_merge_extract。"""
 
 # 语义抽取（文档/论文/图片）
 KG_EXTRACT_SEMANTIC_PMT = """{_JSON_OUT}
@@ -169,20 +168,15 @@ Deep 模式：{deep_mode}
 Gemini 可用：{has_gemini}
 
 请生成语义抽取行动指南（KgStepGuide）。
-graphify 通过 `graphify extract <path>` 可完成语义抽取（需 LLM 后端，如 GEMINI_API_KEY）。
---mode deep 可开启深度模式产生更丰富的 INFERRED 边。
+直接调用 tool_kg_extract_semantic 内联实现，它会：
+- 检查缓存（graphify-out/.graphify_cached.json）
+- 未命中文件写入 graphify-out/.graphify_uncached.txt
+- 若有 Gemini API Key，使用 graphify.llm.extract_corpus_parallel 并行抽取
+- 无 LLM 后端时返回空结果并提示设置 GEMINI_API_KEY/GOOGLE_API_KEY
+- 收集合并，校验覆盖率，缓存新结果
+- 最终合并写入 graphify-out/.graphify_semantic.json
 
-commands 字段请给出可直接执行的命令，例如：
-- 全量语义抽取：`cd "{scan_root}" && python -m graphify extract . --mode deep --out "{pj_dir}"`
-- 仅增量更新：`cd "{scan_root}" && python -m graphify extract . --update --out "{pj_dir}"`
-- 检查产出：`test -f "{pj_dir}/graphify-out/graph.json" && echo EXTRACTED || echo NOT_EXTRACTED`
-
-注意：
-- 无 LLM API Key 时会跳过语义抽取，仅做 AST
-- 设置 GEMINI_API_KEY 或 GOOGLE_API_KEY 可使用 Gemini 后端
-- 大语料建议分块并行，graphify 内部已自动处理
-
-输出 KgStepGuide 结构。"""
+输出 KgStepGuide 结构，建议下一步调用 tool_kg_merge_extract。"""
 
 # 合并 AST + 语义
 KG_MERGE_EXTRACT_PMT = """{_JSON_OUT}
@@ -194,14 +188,13 @@ AST 结果：graphify-out/.graphify_ast.json
 扫描根目录：{scan_root}
 
 请生成合并行动指南（KgStepGuide）。
-graphify 的 `extract` 子命令已自动完成合并，产出 graphify-out/graph.json。
-若需手动合并（罕见），可用 Python 调用内部模块。
+直接调用 tool_kg_merge_extract 内联实现，它会：
+- 读取两侧结果，给语义节点/边打 _origin=semantic 标记
+- 按 ID 去重合并（AST 优先）
+- 产出写入 graphify-out/.graphify_extract.json
+- 统计合并后节点数、边数
 
-commands 字段请给出可直接执行的命令，例如：
-- 检查合并产出：`test -f "{pj_dir}/graphify-out/graph.json" && echo MERGED || echo NOT_MERGED`
-- 统计节点边数：`python -c "import json; d=json.load(open('{pj_dir}/graphify-out/graph.json')); print(f'nodes: {d.get(\"node_count\",0)}, edges: {d.get(\"edge_count\",0)}')"`
-
-输出 KgStepGuide 结构。"""
+输出 KgStepGuide 结构，建议下一步调用 tool_kg_build_graph。"""
 
 # 图构建、聚类、分析
 KG_BUILD_GRAPH_PMT = """{_JSON_OUT}
@@ -216,16 +209,17 @@ KG_BUILD_GRAPH_PMT = """{_JSON_OUT}
 项目目录：{pj_dir}
 
 请生成图构建行动指南（KgStepGuide）。
-graphify 通过 `graphify cluster-only <path>` 可完成聚类、分析、报告生成。
---force 允许强制重建（节点数减少时）。
+直接调用 tool_kg_build_graph 内联实现，它会：
+- 调用 graphify.build.build_from_json 构建 NetworkX 图（有向/无向）
+- 空图保护：节点数为 0 时报错退出
+- 调用 graphify.cluster.cluster 进行社区检测（Leiden/回退 Louvain）
+- 调用 graphify.analyze.god_nodes/surprising_connections/suggest_questions 分析
+- 调用 graphify.export.to_json 导出 graph.json（force 控制收缩保护）
+- 调用 graphify.report.generate 生成 GRAPH_REPORT.md
+- 保存分析结果到 .graphify_analysis.json
+- 调用 graphify.diagnostics.diagnose_extraction 健康检查
 
-commands 字段请给出可直接执行的命令，例如：
-- 聚类与分析：`cd "{scan_root}" && python -m graphify cluster-only . --out "{pj_dir}"`
-- 强制重建：`cd "{scan_root}" && python -m graphify cluster-only . --force --out "{pj_dir}"`
-- 健康检查：`cd "{scan_root}" && python -m graphify diagnose multigraph --graph "{pj_dir}/graphify-out/graph.json"`
-- 检查产出：`test -f "{pj_dir}/graphify-out/GRAPH_REPORT.md" && echo BUILT || echo NOT_BUILT`
-
-输出 KgStepGuide 结构。"""
+输出 KgStepGuide 结构，建议下一步调用 tool_kg_label_communities。"""
 
 # 社区标注
 KG_LABEL_COMMUNITIES_PMT = """{_JSON_OUT}
@@ -240,15 +234,14 @@ KG_LABEL_COMMUNITIES_PMT = """{_JSON_OUT}
 项目目录：{pj_dir}
 
 请生成社区标注行动指南（KgStepGuide）。
-graphify 通过 `graphify label <path>` 可自动用 LLM 命名社区（需 LLM 后端）。
---missing-only 仅命名缺失标签。
+直接调用 tool_kg_label_communities 内联实现，它会：
+- 读取每个社区的节点标签，生成 2-5 词的中文社区名（需 LLM 后端）
+- 用真实标签重新生成建议问题
+- 重写 GRAPH_REPORT.md 与 graph.json（带 community_name）
+- 保存标签到 .graphify_labels.json
+- 重新导出 graph.json 带 community_name
 
-commands 字段请给出可直接执行的命令，例如：
-- 自动命名社区：`cd "{scan_root}" && python -m graphify label . --out "{pj_dir}"`
-- 仅命名缺失：`cd "{scan_root}" && python -m graphify label . --missing-only --out "{pj_dir}"`
-- 检查产出：`test -f "{pj_dir}/graphify-out/.graphify_labels.json" && echo LABELED || echo NOT_LABELED`
-
-输出 KgStepGuide 结构，包含生成的 labels 字典（若手动指定）。"""
+输出 KgStepGuide 结构，包含生成的 labels 字典。"""
 
 # 导出 HTML/Obsidian/Wiki 等
 KG_EXPORT_PMT = """{_JSON_OUT}
@@ -259,17 +252,15 @@ KG_EXPORT_PMT = """{_JSON_OUT}
 项目目录：{pj_dir}
 graphify-out 目录：{graphs_dir}
 
-请生成导出行动指南（KgStepGuide），按标志执行对应的 graphify export 命令。
-
-commands 字段请给出可直接执行的命令，例如：
-- HTML：`cd "{graphs_dir}/.." && python -m graphify export html . --out "{pj_dir}"`
-- Obsidian：`cd "{graphs_dir}/.." && python -m graphify export obsidian . --dir "{getattr(args, 'obsidian_dir', '') or graphs_dir + '/obsidian'}" --out "{pj_dir}"`
-- Wiki：`cd "{graphs_dir}/.." && python -m graphify export wiki . --out "{pj_dir}"`
-- Neo4j：`cd "{graphs_dir}/.." && python -m graphify export neo4j . --push "bolt://..." --out "{pj_dir}"`
-- FalkorDB：`cd "{graphs_dir}/.." && python -m graphify export falkordb . --push "falkordb://..." --out "{pj_dir}"`
-- SVG：`cd "{graphs_dir}/.." && python -m graphify export svg . --out "{pj_dir}"`
-- GraphML：`cd "{graphs_dir}/.." && python -m graphify export graphml . --out "{pj_dir}"`
-- MCP：`cd "{graphs_dir}/.." && python -m graphify export mcp . --out "{pj_dir}"`
+请生成导出行动指南（KgStepGuide）。
+直接调用 tool_kg_export 内联实现，按标志执行对应的 graphify.export 函数：
+- HTML：graphify.export.export_html（>5000 节点自动聚合社区视图）
+- Obsidian：graphify.export.export_obsidian
+- Wiki：graphify.export.export_wiki
+- Neo4j：graphify.export.export_neo4j
+- FalkorDB：graphify.export.export_falkordb
+- SVG：graphify.export.export_svg
+- GraphML：graphify.export.export_graphml
 
 输出 KgStepGuide 结构。"""
 
@@ -284,13 +275,10 @@ Token 预算：{budget}
 graphify-out 目录：{graphs_dir}
 
 请生成查询行动指南（KgStepGuide）。
-graphify 通过 `graphify query "<question>"` 可执行自然语言查询。
---dfs 使用深度优先遍历，--budget 限制输出 token。
-
-commands 字段请给出可直接执行的命令，例如：
-- BFS 查询：`cd "{graphs_dir}/.." && python -m graphify query "{question}" --out "{pj_dir}"`
-- DFS 查询：`cd "{graphs_dir}/.." && python -m graphify query "{question}" --dfs --out "{pj_dir}"`
-- 带预算：`cd "{graphs_dir}/.." && python -m graphify query "{question}" --budget {budget} --out "{pj_dir}"`
+直接调用 tool_kg_query 内联实现，它会：
+- 调用 graphify.query.query_graph 执行自然语言查询
+- --dfs 使用深度优先遍历，--budget 限制输出 token
+- 返回回答、相关节点、边、路径
 
 输出 KgStepGuide 结构。"""
 
@@ -304,10 +292,9 @@ KG_PATH_PMT = """{_JSON_OUT}
 graphify-out 目录：{graphs_dir}
 
 请生成最短路径查询行动指南（KgStepGuide）。
-graphify 通过 `graphify path "<from>" "<to>"` 可查询最短路径。
-
-commands 字段请给出可直接执行的命令，例如：
-- 路径查询：`cd "{graphs_dir}/.." && python -m graphify path "{path_from}" "{path_to}" --out "{pj_dir}"`
+直接调用 tool_kg_path 内联实现，它会：
+- 调用 graphify.query.path_query 执行最短路径查询
+- 返回路径节点序列、边关系、跨越的社区边界
 
 输出 KgStepGuide 结构。"""
 
@@ -320,12 +307,10 @@ KG_EXPLAIN_PMT = """{_JSON_OUT}
 graphify-out 目录：{graphs_dir}
 
 请生成节点解释行动指南（KgStepGuide）。
-graphify 通过 `graphify explain "<node>"` 可解释节点。
---all 列出所有连接。
-
-commands 字段请给出可直接执行的命令，例如：
-- 解释节点：`cd "{graphs_dir}/.." && python -m graphify explain "{node_name}" --out "{pj_dir}"`
-- 详细解释：`cd "{graphs_dir}/.." && python -m graphify explain "{node_name}" --all --out "{pj_dir}"`
+直接调用 tool_kg_explain 内联实现，它会：
+- 调用 graphify.query.explain_node 解释节点
+- --all 列出所有连接
+- 返回节点完整信息、通俗中文解释、关键关联节点与关系
 
 输出 KgStepGuide 结构。"""
 
@@ -340,12 +325,10 @@ URL：{url}
 项目目录：{pj_dir}
 
 请生成添加 URL 行动指南（KgStepGuide）。
-graphify 通过 `graphify add <url>` 可添加 URL 到语料库。
---author/--contributor 指定元数据。
-
-commands 字段请给出可直接执行的命令，例如：
-- 添加 URL：`cd "{pj_dir}" && python -m graphify add "{url}" --author "{author}" --contributor "{contributor}" --out "{pj_dir}"`
-- 增量更新：`cd "{pj_dir}" && python -m graphify update . --out "{pj_dir}"`
+直接调用 tool_kg_add_url 内联实现，它会：
+- 调用 graphify.cli.add_url 下载 URL 内容保存到 raw/
+- 记录作者/贡献者元数据
+- 触发增量重建（tool_kg_build_graph）
 
 输出 KgStepGuide 结构。"""
 
@@ -359,12 +342,10 @@ Whisper 模型：{whisper_model}
 项目目录：{pj_dir}
 
 请生成视频转录行动指南（KgStepGuide）。
-graphify 通过 `graphify extract <path>` 会自动调用 whisper 转录视频/音频文件。
-也可单独用 `whisper` 命令行工具。
-
-commands 字段请给出可直接执行的命令，例如：
-- 单独转录：`whisper "{video_files}" --model {whisper_model} --output_dir "{pj_dir}/graphify-out/transcripts/"`
-- 或通过 graphify：`cd "{pj_dir}" && python -m graphify extract . --out "{pj_dir}"`（会自动处理视频）
+直接调用 tool_kg_transcribe 内联实现，它会：
+- 调用 graphify.transcribe.transcribe_files 转录视频/音频文件
+- 将转录文本作为 document 类型参与后续抽取
+- 产出保存到 graphify-out/transcripts/
 
 输出 KgStepGuide 结构。"""
 
@@ -377,12 +358,9 @@ KG_WATCH_PMT = """{_JSON_OUT}
 项目目录：{pj_dir}
 
 请生成监控行动指南（KgStepGuide）。
-graphify 通过 `graphify watch <path>` 可监控文件变化并自动增量重建。
-
-commands 字段请给出可直接执行的命令，例如：
-- 启动监控：`cd "{watch_dir}" && python -m graphify watch . --out "{pj_dir}"`
-
-注意：监控模式会长期运行，通常在后台执行。
+直接调用 tool_kg_watch 内联实现，它会：
+- 返回启动监控的命令建议（watch 是长期运行，建议在终端直接运行）
+- 变化时自动增量重建（无需 LLM）
 
 输出 KgStepGuide 结构。"""
 
