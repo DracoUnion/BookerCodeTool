@@ -228,6 +228,8 @@ class KgTools(ToolsMixin):
         if target.startswith('https://github.com/') or target.startswith('http://github.com/'):
             # GitHub URL，返回克隆后的目录
             return path.join(self.pj_dir, 'repo')
+        # 规范化路径，处理 Windows 路径
+        target = target.replace('/', '\\')
         return path.abspath(target)
 
     def _get_code_files(self) -> List[str]:
